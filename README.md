@@ -36,7 +36,7 @@ Please first install [ComfyUI](https://github.com/comfyanonymous/ComfyUI/tree/ma
 	https://github.com/mo230761/InsertAnything-ComfyUI-official.git
  ```
 
- 4. Then install it and just wait a minute.
+ 4. Move the `InsertAnything.json` file into your local ComfyUI's user/default/workflows directory.
  ### Manual Installation
   1. Clone this repository into the `custom_nodes` directory inside ComfyUI:
 
