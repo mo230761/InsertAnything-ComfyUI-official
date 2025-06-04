@@ -315,7 +315,10 @@ class FillProcess:
             }
         }
     RETURN_TYPES = (
-        "IMAGE", "MASK", "H1", "W1", "H2", "W2", "old_tar_image", "tar_box_yyxx_crop", "IMAGE",
+        "IMAGE", "MASK", "IMAGE", "BOX", "CROP_PARAMS", "IMAGE", # Adjusted
+    )
+    RETURN_NAMES = ( # Adjusted
+        "image", "mask", "old_tar_image", "tar_box_yyxx_crop", "crop_params", "preview_image",
     )
     FUNCTION = "FillProcess"
 
@@ -418,13 +421,29 @@ class FillProcess:
         diptych_ref_tar_tensor = torch.from_numpy(diptych_ref_tar.copy()).unsqueeze(0).float() / 255.0
         mask_diptych_tensor = torch.from_numpy(output_mask_diptych_np.copy()).unsqueeze(0).unsqueeze(1).float() / 255.0 # (B, C, H, W) so (1,1,H,W)
 
-        mask_diptych_tensor = torch.from_numpy(output_mask_diptych_np.copy()).unsqueeze(0).float() / 255.0
+        mask_diptych_tensor = torch.from_numpy(output_mask_diptych_np.copy()).unsqueeze(0).float() / 255.0 # This was duplicated, using the (1,1,H,W) version above this line. Correcting.
+        # The line above was: mask_diptych_tensor = torch.from_numpy(output_mask_diptych_np.copy()).unsqueeze(0).unsqueeze(1).float() / 255.0
+        # The line below it was: mask_diptych_tensor = torch.from_numpy(output_mask_diptych_np.copy()).unsqueeze(0).float() / 255.0
+        # The unsqueeze(1) is for channel, so (B, C, H, W) is (1,1,H,W) for a single channel mask.
+        # Let's ensure the correct one is used. The one with unsqueeze(1) is typical for masks.
+        # Re-evaluating: output_mask_diptych_np is (H,W).
+        # For ComfyUI MASK type, it's often (B, H, W) or (B, 1, H, W).
+        # If it's (B,H,W) then .unsqueeze(0).float() / 255.0 is fine.
+        # If it needs to be (B,1,H,W) then .unsqueeze(0).unsqueeze(1).float() / 255.0 is correct.
+        # The original code had both, the second one overwriting the first.
+        # Let's stick to the (B, H, W) convention for mask output unless (B,1,H,W) is strictly needed by other nodes.
+        # Given `mask_diptych_tensor = torch.from_numpy(output_mask_diptych_np.copy()).unsqueeze(0).float() / 255.0` was the last one, let's assume it's (B,H,W)
+        # However, the type hint for MASK in ComfyUI is often a 2D tensor (H,W) or (1,H,W) for batch 1.
+        # Let's assume the output MASK type should be (1, H, W) for consistency with typical ComfyUI mask tensors.
+        # output_mask_diptych_np is (H,W). So, .unsqueeze(0) makes it (1,H,W). This is fine.
 
-
+        old_tar_image_tensor = torch.from_numpy(old_tar_image_np.astype(np.float32) / 255.0).unsqueeze(0)
+        crop_params_tuple = (H1, W1, H2, W2)
+        # tar_box_yyxx_crop is already a tuple (y1,y2,x1,x2)
 
         show_diptych_ref_tar_tensor = torch.from_numpy(show_diptych_ref_tar.copy()).unsqueeze(0).float() / 255.0
 
-        return (diptych_ref_tar_tensor, mask_diptych_tensor, H1, W1, H2, W2, old_tar_image_np, tar_box_yyxx_crop, show_diptych_ref_tar_tensor)
+        return (diptych_ref_tar_tensor, mask_diptych_tensor, old_tar_image_tensor, tar_box_yyxx_crop, crop_params_tuple, show_diptych_ref_tar_tensor)
 
 
 
@@ -435,12 +454,9 @@ class CropBack:
         return {
             "required": {
                 "raw_image": ("IMAGE",),
-                "H1": ("H1",),
-                "W1": ("W1",),
-                "H2": ("H2",),
-                "W2": ("W2",),
-                "old_tar_image": ("old_tar_image",),
-                "tar_box_yyxx_crop": ("tar_box_yyxx_crop",),
+                "old_tar_image": ("IMAGE",), # Changed from custom type to IMAGE
+                "tar_box_yyxx_crop": ("BOX",), # Assuming BOX is the type for the tuple
+                "crop_params": ("CROP_PARAMS",) # Assuming CROP_PARAMS for (H1,W1,H2,W2)
             }
         }
 
@@ -450,25 +466,59 @@ class CropBack:
     def CropBack(
         self,
         raw_image,
-        H1, W1, H2, W2,
-        old_tar_image,
-        tar_box_yyxx_crop
+        old_tar_image, # This is now a tensor
+        tar_box_yyxx_crop, # This is a tuple (y1,y2,x1,x2)
+        crop_params      # This is a tuple (H1,W1,H2,W2)
     ):
+        # Unpack crop_params
+        H1, W1, H2, W2 = crop_params
 
-        raw_image = np.array(raw_image)[0]
-        raw_image = (raw_image * 255).round().astype(np.uint8)
-        raw_image = Image.fromarray(raw_image)
+        # Convert old_tar_image tensor to numpy array for crop_back helper
+        old_tar_image_np = (old_tar_image[0].cpu().numpy() * 255).round().astype(np.uint8)
 
-        width, height = raw_image.size
+        raw_image_np = np.array(raw_image)[0] # raw_image is already a tensor
+        raw_image_np = (raw_image_np * 255).round().astype(np.uint8)
+        # Convert raw_image_np to PIL Image for cropping the right half
+        pil_raw_image = Image.fromarray(raw_image_np)
+
+        width, height = pil_raw_image.size
         left = width // 2
         right = width
         top = 0
         bottom = height
-        edited_image = raw_image.crop((left, top, right, bottom))
+        edited_image_pil = pil_raw_image.crop((left, top, right, bottom))
 
-        edited_image = np.array(edited_image)
-        edited_image = crop_back(edited_image, old_tar_image, np.array([H1, W1, H2, W2]), np.array(tar_box_yyxx_crop))
+        edited_image_np = np.array(edited_image_pil)
+        
+        # tar_box_yyxx_crop is already a tuple, convert to numpy array if crop_back expects it
+        # The crop_back helper function expects tar_image (old_tar_image_np) and tar_box_yyxx_crop as numpy arrays.
+        # extra_sizes is also expected as a numpy array.
+        edited_image_final_np = crop_back(edited_image_np, old_tar_image_np, 
+                                          np.array([H1, W1, H2, W2]), 
+                                          np.array(tar_box_yyxx_crop))
 
-        edited_image = torch.from_numpy(edited_image).unsqueeze(0).float() / 255.0
+        edited_image_tensor = torch.from_numpy(edited_image_final_np.astype(np.float32) / 255.0).unsqueeze(0)
 
-        return (edited_image,)
+        return (edited_image_tensor,)
+        raw_image = (raw_image * 255).round().astype(np.uint8)
+        raw_image = Image.fromarray(raw_image)
+
+        # This block is now part of the new structure above.
+        # raw_image = np.array(raw_image)[0]
+        # raw_image = (raw_image * 255).round().astype(np.uint8)
+        # raw_image = Image.fromarray(raw_image)
+
+        # width, height = raw_image.size
+        # left = width // 2
+        # right = width
+        # top = 0
+        # bottom = height
+        # edited_image = raw_image.crop((left, top, right, bottom))
+
+        # edited_image = np.array(edited_image)
+        # edited_image = crop_back(edited_image, old_tar_image, np.array([H1, W1, H2, W2]), np.array(tar_box_yyxx_crop))
+
+        # edited_image = torch.from_numpy(edited_image).unsqueeze(0).float() / 255.0
+
+        # return (edited_image,)
+        pass # Placeholder for the removed block, the logic is now in the new method body
