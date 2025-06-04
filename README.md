@@ -55,13 +55,13 @@ Please first install [ComfyUI](https://github.com/comfyanonymous/ComfyUI/tree/ma
 
 ## 🚀 Usage Examples
 
-Using this workflow (`workflows/InsertAnything.json`), the source image and ref_image are cropped and scaled to a standard size of 768*768 to generate the image.
+Using this [workflow](workflows/InsertAnything.json), the source image and ref_image are cropped and scaled to a standard size of 768*768 to generate the image.
 
 The effect is shown in the figure below.
 
 ![insert_anything](assets/insert_anything.png)
 
-The Insert Anything LoRA still performs well at larger resolutions. Therefore, to avoid image quality loss caused by processing images to 768*768, you can also use this workflow (`workflows/InsertAnything_noscaling.json`) to only crop the image for generation. In this case, you can set the image resolution more freely.
+The Insert Anything LoRA still performs well at larger resolutions. Therefore, to avoid image quality loss caused by processing images to 768*768, you can also use this [workflow](`workflows/InsertAnything_noscaling.json`) to only crop the image for generation. In this case, you can set the image resolution more freely.
 
 The effect is shown in the figure below.
 
