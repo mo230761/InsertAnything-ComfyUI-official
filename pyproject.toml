@@ -1,0 +1,15 @@
+[project]
+name = "insertanything-comfyui-official"
+description = ""
+version = "1.0.0"
+license = {file = "LICENSE"}
+
+[project.urls]
+Repository = "https://github.com/mo230761/InsertAnything-ComfyUI-official"
+#  Used by Comfy Registry https://registry.comfy.org
+
+[tool.comfy]
+PublisherId = ""
+DisplayName = "InsertAnything-ComfyUI-official"
+Icon = ""
+includes = []
